@@ -2,20 +2,21 @@ name: Deploy FastAPI Code Only
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
+
+concurrency:
+  group: deploy-lambda-rrR
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     env:
       AWS_REGION: ap-northeast-2
       FUNCTION_NAME: rrR
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Package application code
         run: zip -r function.zip main.py
@@ -30,15 +31,27 @@ jobs:
       - name: Update Lambda code only
         run: |
           aws lambda update-function-code \
-            --function-name $FUNCTION_NAME \
+            --function-name "$FUNCTION_NAME" \
             --zip-file fileb://function.zip \
-            --region $AWS_REGION
+            --region "$AWS_REGION"
 
-      - name: Ensure handler/runtime (레이어는 건드리지 않음)
+      - name: Wait for code update to finish
+        run: |
+          aws lambda wait function-updated \
+            --function-name "$FUNCTION_NAME" \
+            --region "$AWS_REGION"
+
+      - name: Update handler/runtime (layer는 그대로)
         run: |
           aws lambda update-function-configuration \
-            --function-name $FUNCTION_NAME \
+            --function-name "$FUNCTION_NAME" \
             --handler main.handler \
             --runtime python3.12 \
             --timeout 30 \
-            --region $AWS_REGION
+            --region "$AWS_REGION"
+
+      - name: Wait for configuration update to finish
+        run: |
+          aws lambda wait function-updated \
+            --function-name "$FUNCTION_NAME" \
+            --region "$AWS_REGION"
