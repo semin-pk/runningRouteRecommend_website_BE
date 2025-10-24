@@ -1,41 +1,81 @@
-name: Deploy to AWS Lambda (Serverless)
+name: Deploy FastAPI to AWS Lambda
 
 on:
   push:
-    branches: [ "main" ]        # 원하는 브랜치로 변경
-  workflow_dispatch:            # 수동 실행 버튼
+    branches: 
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
+    env:
+      AWS_REGION: ap-northeast-2
+      FUNCTION_NAME: lets-server   # 람다 함수 이름
+      PY_VERSION: "3.12"
+
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node (Serverless CLI 필요)
-        uses: actions/setup-node@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          node-version: "20"
+          python-version: "${{ env.PY_VERSION }}"
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install Serverless + plugin
+      # ✅ Layer (라이브러리 전용) 빌드
+      - name: Build Lambda Layer (Amazon Linux)
         run: |
-          npm i -g serverless@3 serverless-python-requirements
+          rm -rf python
+          docker run --rm \
+            --platform linux/amd64 \
+            -v "$PWD":/var/task \
+            -w /var/task \
+            public.ecr.aws/lambda/python:${{ env.PY_VERSION }} \
+            /bin/bash -lc "pip install -r requirements.txt -t python"
+          zip -r dependencies.zip python
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-northeast-2
+          aws-region: ${{ env.AWS_REGION }}
 
-      # (선택) Docker 로그인은 필요없음. GitHub 호스트의 Docker를 그대로 사용
-      # serverless-python-requirements가 dockerizePip: true로 컨테이너 빌드 진행
+      - name: Publish Layer
+        id: layer
+        run: |
+          LAYER_ARN=$(aws lambda publish-layer-version \
+            --layer-name fastapi-dependencies \
+            --zip-file fileb://dependencies.zip \
+            --compatible-runtimes python${{ env.PY_VERSION }} \
+            --region $AWS_REGION \
+            --query 'LayerVersionArn' --output text)
+          echo "LAYER_ARN=$LAYER_ARN" >> $GITHUB_ENV
+          echo "✅ Created Layer: $LAYER_ARN"
 
-      - name: Deploy with Serverless
-        run: sls deploy --stage prod
+      # ✅ 함수 코드 ZIP — main.py만 포함 (코드만)
+      - name: Package application code
+        run: |
+          zip -r function.zip main.py
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --zip-file fileb://function.zip \
+            --region $AWS_REGION
+
+      # ✅ 핸들러 & 레이어 연결 유지
+      - name: Update Lambda configuration
+        run: |
+          aws lambda update-function-configuration \
+            --function-name $FUNCTION_NAME \
+            --handler main.handler \
+            --runtime python${{ env.PY_VERSION }} \
+            --layers "$LAYER_ARN" \
+            --timeout 30 \
+            --region $AWS_REGION
+
+      - name: Complete
+        run: echo "🚀 Lambda FastAPI Deployed Successfully!"
