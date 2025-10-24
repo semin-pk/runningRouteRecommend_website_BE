@@ -29,7 +29,7 @@ provider:
 
 functions:
   api:
-    handler: runningRouteRecommend_website_BE.main.handler
+    handler: main.handler
     events:
       - httpApi:
           method: ANY
