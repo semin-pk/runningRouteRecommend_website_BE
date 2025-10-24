@@ -11,7 +11,7 @@ jobs:
 
     env:
       AWS_REGION: ap-northeast-2
-      FUNCTION_NAME: lets-server
+      FUNCTION_NAME: rrR
 
     steps:
       - name: Checkout
