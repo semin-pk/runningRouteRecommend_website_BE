@@ -1,8 +1,8 @@
-name: Deploy FastAPI to AWS Lambda
+name: Deploy FastAPI Code Only
 
 on:
   push:
-    branches: 
+    branches:
       - main
 
 jobs:
@@ -11,71 +11,34 @@ jobs:
 
     env:
       AWS_REGION: ap-northeast-2
-      FUNCTION_NAME: lets-server   # 람다 함수 이름
-      PY_VERSION: "3.12"
+      FUNCTION_NAME: lets-server
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "${{ env.PY_VERSION }}"
+      - name: Package application code
+        run: zip -r function.zip main.py
 
-      # ✅ Layer (라이브러리 전용) 빌드
-      - name: Build Lambda Layer (Amazon Linux)
-        run: |
-          rm -rf python
-          docker run --rm \
-            --platform linux/amd64 \
-            -v "$PWD":/var/task \
-            -w /var/task \
-            public.ecr.aws/lambda/python:${{ env.PY_VERSION }} \
-            /bin/bash -lc "pip install -r requirements.txt -t python"
-          zip -r dependencies.zip python
-
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Publish Layer
-        id: layer
-        run: |
-          LAYER_ARN=$(aws lambda publish-layer-version \
-            --layer-name fastapi-dependencies \
-            --zip-file fileb://dependencies.zip \
-            --compatible-runtimes python${{ env.PY_VERSION }} \
-            --region $AWS_REGION \
-            --query 'LayerVersionArn' --output text)
-          echo "LAYER_ARN=$LAYER_ARN" >> $GITHUB_ENV
-          echo "✅ Created Layer: $LAYER_ARN"
-
-      # ✅ 함수 코드 ZIP — main.py만 포함 (코드만)
-      - name: Package application code
-        run: |
-          zip -r function.zip main.py
-
-      - name: Update Lambda function code
+      - name: Update Lambda code only
         run: |
           aws lambda update-function-code \
             --function-name $FUNCTION_NAME \
             --zip-file fileb://function.zip \
             --region $AWS_REGION
 
-      # ✅ 핸들러 & 레이어 연결 유지
-      - name: Update Lambda configuration
+      - name: Ensure handler/runtime (레이어는 건드리지 않음)
         run: |
           aws lambda update-function-configuration \
             --function-name $FUNCTION_NAME \
             --handler main.handler \
-            --runtime python${{ env.PY_VERSION }} \
-            --layers "$LAYER_ARN" \
+            --runtime python3.12 \
             --timeout 30 \
             --region $AWS_REGION
-
-      - name: Complete
-        run: echo "🚀 Lambda FastAPI Deployed Successfully!"
