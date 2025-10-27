@@ -1,16 +1,16 @@
 service: fastapi-running-route
-frameworkVersion: "3"
+frameworkVersion: "3.38.0"
 
 provider:
   name: aws
-  runtime: python3.12
+  runtime: python3.11
   region: ap-northeast-2
   memorySize: 512
   timeout: 15
   architecture: x86_64   # arm64도 가능. 이미지/네이티브 확장 없으면 arm64가 저렴.
   environment:
-    # 예) SSM 파라미터를 환경변수로 노출 (필요 없으면 삭제)
-    KAKAO_REST_API_KEY: ${ssm:/fastapi-running-route/KAKAO_REST_API_KEY}
+    # 환경변수 설정
+    KAKAO_REST_API_KEY: ${env:KAKAO_REST_API_KEY}
     ENVIRONMENT: production
   httpApi:
     cors:
@@ -56,8 +56,6 @@ functions:
           path: /{proxy+}
     # 보안 설정
     reservedConcurrency: 10  # 동시 실행 제한
-    deadLetter:
-      targetArn: !GetAtt DeadLetterQueue.Arn
 
 package:
   # 서비스 단위 패키징. 포함/제외 패턴 지정
@@ -80,7 +78,7 @@ resources:
     CloudWatchLogGroup:
       Type: AWS::Logs::LogGroup
       Properties:
-        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-api
+        LogGroupName: /aws/lambda/fastapi-running-route-production-api
         RetentionInDays: 14
 
 custom:

@@ -38,7 +38,7 @@ jobs:
         
     - name: Install Serverless Framework
       run: |
-        npm install -g serverless
+        npm install -g serverless@3.38.0
         npm install -g serverless-python-requirements
         
     - name: Deploy to AWS
