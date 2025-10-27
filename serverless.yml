@@ -74,7 +74,6 @@ resources:
       Type: AWS::SQS::Queue
       Properties:
         MessageRetentionPeriod: 1209600  # 14일
-        VisibilityTimeoutSeconds: 60
 
 custom:
   pythonRequirements:
