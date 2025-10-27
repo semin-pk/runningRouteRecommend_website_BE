@@ -14,7 +14,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 # (파일 상단에)  from mangum import Mangum
 ##배포 확인 용##
-###확인
+###확인 다시 확인
 KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY")
 
 # Rate Limiter 설정
