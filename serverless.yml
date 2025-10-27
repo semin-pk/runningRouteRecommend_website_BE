@@ -1,4 +1,4 @@
-service: fastapi-running-route
+service: rrR
 frameworkVersion: "3.38.0"
 
 provider:
@@ -37,7 +37,7 @@ provider:
         - Effect: Allow
           Action:
             - ssm:GetParameter
-          Resource: arn:aws:ssm:${self:provider.region}:*:parameter/fastapi-running-route/*
+          Resource: arn:aws:ssm:${self:provider.region}:*:parameter/rrR/*
         # (SecureString일 경우 KMS 복호화가 필요할 수 있음)
         - Effect: Allow
           Action:
@@ -78,7 +78,7 @@ resources:
     CloudWatchLogGroup:
       Type: AWS::Logs::LogGroup
       Properties:
-        LogGroupName: /aws/lambda/fastapi-running-route-production-api
+        LogGroupName: /aws/lambda/rrR-production-api
         RetentionInDays: 14
 
 custom:
