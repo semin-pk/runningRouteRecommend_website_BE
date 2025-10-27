@@ -41,9 +41,10 @@ jobs:
         npm install -g serverless@3.38.0
         npm install -g serverless-python-requirements
         
-    - name: Remove existing stack (if exists)
+    - name: Remove existing stacks (if exist)
       run: |
-        serverless remove --stage production || true
+        serverless remove --stage production --service rrR || true
+        serverless remove --stage production --service running-route-api || true
       env:
         ENVIRONMENT: production
         KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}

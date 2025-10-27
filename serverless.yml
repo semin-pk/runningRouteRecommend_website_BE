@@ -1,9 +1,9 @@
-service: rrR
+service: running-route-api
 frameworkVersion: "3.38.0"
 
 provider:
   name: aws
-  runtime: python3.12
+  runtime: python3.11
   region: ap-northeast-2
   memorySize: 512
   timeout: 15
@@ -75,11 +75,6 @@ resources:
       Properties:
         MessageRetentionPeriod: 1209600  # 14일
         VisibilityTimeoutSeconds: 60
-    CloudWatchLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/lambda/rrR-production-api
-        RetentionInDays: 14
 
 custom:
   pythonRequirements:
