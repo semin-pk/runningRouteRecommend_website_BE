@@ -3,7 +3,7 @@ frameworkVersion: "3.38.0"
 
 provider:
   name: aws
-  runtime: python3.11
+  runtime: python3.12
   region: ap-northeast-2
   memorySize: 512
   timeout: 15
