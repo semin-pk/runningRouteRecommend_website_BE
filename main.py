@@ -4,30 +4,124 @@ import random
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, validator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 # (파일 상단에)  from mangum import Mangum
 ##배포 확인 용##
 ###확인
-KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY", "faa3869240e454c8a6be06fbc2974992")
+KAKAO_REST_API_KEY = os.getenv("KAKAO_REST_API_KEY")
+
+# Rate Limiter 설정
+limiter = Limiter(key_func=get_remote_address)
+
+# FastAPI 앱 생성
+app = FastAPI(title="Running Route Recommender")
+
+# Rate Limiter 등록
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Trusted Host 미들웨어 추가 (보안)
+app.add_middleware(
+	TrustedHostMiddleware, 
+	allowed_hosts=["www.run2style.com", "run2style.com", "*.amazonaws.com", "localhost"]
+)
+
+# CORS 설정 - 프로덕션 환경에 맞게 수정
+allowed_origins = [
+	"https://www.run2style.com",
+	"https://run2style.com",
+	"https://main.d1234567890.amplifyapp.com",  # Amplify 기본 도메인 (필요시)
+]
+
+# 개발 환경에서는 localhost도 허용
+if os.getenv("ENVIRONMENT") != "production":
+	allowed_origins.extend([
+		"http://localhost:3000",
+		"http://localhost:3001",
+		"http://127.0.0.1:3000",
+		"http://127.0.0.1:3001"
+	])
+
+app.add_middleware(
+	CORSMiddleware,
+	allow_origins=allowed_origins,
+	allow_credentials=True,
+	allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+	allow_headers=["*"],
+)
+
+# 보안 헤더 추가
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+	response = await call_next(request)
+	response.headers["X-Content-Type-Options"] = "nosniff"
+	response.headers["X-Frame-Options"] = "DENY"
+	response.headers["X-XSS-Protection"] = "1; mode=block"
+	response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+	response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+	return response
+
+# 전역 예외 핸들러
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+	return JSONResponse(
+		status_code=exc.status_code,
+		content={"error": exc.detail, "status_code": exc.status_code}
+	)
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+	# 프로덕션에서는 상세한 에러 정보를 노출하지 않음
+	if os.getenv("ENVIRONMENT") == "production":
+		return JSONResponse(
+			status_code=500,
+			content={"error": "Internal server error", "status_code": 500}
+		)
+	else:
+		return JSONResponse(
+			status_code=500,
+			content={"error": str(exc), "status_code": 500}
+		)
 
 
 class Waypoint(BaseModel):
-	theme_keyword: str = Field(..., min_length=1, description="Search keyword for this waypoint")
-	order: int = Field(..., ge=1, description="Order of this waypoint in the route")
+	theme_keyword: str = Field(..., min_length=1, max_length=50, description="Search keyword for this waypoint")
+	order: int = Field(..., ge=1, le=10, description="Order of this waypoint in the route")
 
 	@validator("theme_keyword")
 	def strip_keyword(cls, v: str) -> str:
-		return v.strip()
+		v = v.strip()
+		if not v:
+			raise ValueError("Theme keyword cannot be empty")
+		# 특수문자 제한 (보안상 이유)
+		if any(char in v for char in ['<', '>', '&', '"', "'", '\\', '/']):
+			raise ValueError("Theme keyword contains invalid characters")
+		return v
 
 
 class RecommendRequest(BaseModel):
-	start_lat: float = Field(..., description="Starting latitude")
-	start_lng: float = Field(..., description="Starting longitude")
-	total_distance_km: float = Field(..., gt=0, description="Total desired running distance in kilometers")
-	waypoints: List[Waypoint] = Field(default=[], description="List of waypoints to visit")
+	start_lat: float = Field(..., ge=-90, le=90, description="Starting latitude")
+	start_lng: float = Field(..., ge=-180, le=180, description="Starting longitude")
+	total_distance_km: float = Field(..., gt=0, le=50, description="Total desired running distance in kilometers (max 50km)")
+	waypoints: List[Waypoint] = Field(default=[], max_items=10, description="List of waypoints to visit (max 10)")
 	is_round_trip: bool = Field(default=True, description="Whether to return to start point (round trip) or end at last waypoint (one way)")
+	
+	@validator("waypoints")
+	def validate_waypoint_orders(cls, v):
+		if v:
+			orders = [w.order for w in v]
+			if len(set(orders)) != len(orders):
+				raise ValueError("Waypoint orders must be unique")
+			if min(orders) < 1:
+				raise ValueError("Waypoint orders must be >= 1")
+		return v
 
 
 class WaypointResult(BaseModel):
@@ -150,19 +244,11 @@ async def kakao_keyword_search(
 	return results
 
 
-app = FastAPI(title="Running Route Recommender")
-
-app.add_middleware(
-	CORSMiddleware,
-	allow_origins=["*"],  # For development; tighten in production
-	allow_credentials=True,
-	allow_methods=["*"],
-	allow_headers=["*"],
-)
 
 
 @app.get("/health_check")
-async def health() -> Dict[str, str]:
+@limiter.limit("30/minute")
+async def health(request: Request) -> Dict[str, str]:
 	return {"status": "ok"}
 
 
@@ -214,7 +300,8 @@ def distribute_distance_for_waypoints(total_distance_km: float, waypoint_count: 
 
 
 @app.post("/api/recommend", response_model=RecommendResponse)
-async def recommend(req: RecommendRequest) -> RecommendResponse:
+@limiter.limit("10/minute")
+async def recommend(request: Request, req: RecommendRequest) -> RecommendResponse:
 	start_lat = req.start_lat
 	start_lng = req.start_lng
 	total_distance_km = req.total_distance_km

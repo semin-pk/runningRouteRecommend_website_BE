@@ -11,6 +11,23 @@ provider:
   environment:
     # 예) SSM 파라미터를 환경변수로 노출 (필요 없으면 삭제)
     KAKAO_REST_API_KEY: ${ssm:/fastapi-running-route/KAKAO_REST_API_KEY}
+    ENVIRONMENT: production
+  httpApi:
+    cors:
+      allowedOrigins:
+        - https://www.run2style.com
+        - https://run2style.com
+      allowedHeaders:
+        - Content-Type
+        - Authorization
+        - X-Requested-With
+      allowedMethods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - OPTIONS
+      allowCredentials: true
 
 
   iam:
@@ -37,21 +54,41 @@ functions:
       - httpApi:
           method: ANY
           path: /{proxy+}
+    # 보안 설정
+    reservedConcurrency: 10  # 동시 실행 제한
+    deadLetter:
+      targetArn: !GetAtt DeadLetterQueue.Arn
 
 package:
   # 서비스 단위 패키징. 포함/제외 패턴 지정
   patterns:
-    - backend/**           # 코드와 requirements.txt가 backend/에 있으므로 통째 포함
+    - "**"                 # 모든 파일 포함
+    - "!node_modules/**"   # node_modules 제외
+    - "!.git/**"           # .git 제외
+    - "!*.md"              # 마크다운 파일 제외
 
 plugins:
   - serverless-python-requirements
+
+resources:
+  Resources:
+    DeadLetterQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        MessageRetentionPeriod: 1209600  # 14일
+        VisibilityTimeoutSeconds: 60
+    CloudWatchLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${self:provider.stage}-api
+        RetentionInDays: 14
 
 custom:
   pythonRequirements:
     # 핵심: Lambda와 동일한 리눅스 환경에서 빌드 (GitHub Actions 러너에 Docker 있음)
     dockerizePip: true
-    # requirements.txt가 backend/에 있으므로 경로 지정
-    fileName: backend/requirements.txt
+    # requirements.txt 경로 지정
+    fileName: requirements.txt
     # 배포 크기 줄이기 (소스/휠 중 불필요한 것 제거)
     slim: true
     # Python 버전 지정(선택): 러너 기본 python이 낮을 때 유용
