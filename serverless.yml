@@ -10,7 +10,7 @@ provider:
   architecture: x86_64   # arm64도 가능. 이미지/네이티브 확장 없으면 arm64가 저렴.
   environment:
     # 환경변수 설정
-    KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+    KAKAO_REST_API_KEY: ${env:KAKAO_REST_API_KEY}
     ENVIRONMENT: production
   httpApi:
     cors:
@@ -55,7 +55,7 @@ functions:
           method: ANY
           path: /{proxy+}
     # 보안 설정
-    reservedConcurrency: 10  # 동시 실행 제한
+    #reservedConcurrency: 10  # 동시 실행 제한
 
 package:
   # 서비스 단위 패키징. 포함/제외 패턴 지정
