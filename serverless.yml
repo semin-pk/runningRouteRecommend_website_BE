@@ -15,8 +15,8 @@ provider:
   httpApi:
     cors:
       allowedOrigins:
-        - https://www.run2style.com
-        - https://run2style.com
+        - https://www.run2yourstyle.com
+        - https://run2yourstyle.com
       allowedHeaders:
         - Content-Type
         - Authorization
