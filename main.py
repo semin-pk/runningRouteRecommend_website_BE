@@ -39,8 +39,8 @@ app.add_middleware(
 
 # CORS 설정 - 프로덕션 환경에 맞게 수정
 allowed_origins = [
-	"https://www.run2style.com",
-	"https://run2style.com",
+	"https://www.run2yourstyle.com",
+	"https://run2yourstyle.com",
 	"https://main.d1234567890.amplifyapp.com",  # Amplify 기본 도메인 (필요시)
 ]
 
