@@ -30,7 +30,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Trusted Host 미들웨어 추가 (보안)
 app.add_middleware(
 	TrustedHostMiddleware, 
-	allowed_hosts=["www.run2style.com", "run2style.com", "*.amazonaws.com", "localhost"]
+	allowed_hosts=[
+		"www.run2yourstyle.com", 
+		"run2yourstyle.com", 
+		"*.amazonaws.com", 
+		"localhost"]
 )
 
 # CORS 설정 - 프로덕션 환경에 맞게 수정
