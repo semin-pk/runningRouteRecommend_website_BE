@@ -2,8 +2,8 @@ import random
 from typing import Any, Dict, List, Tuple
 
 from src.domain.models import RecommendRequest, RecommendResponse, WaypointResult
-from infrastructure.kakao.kakao_keyword_search_service import KakaoKeywordSearchService
-from infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchResponse, KakaoKeywordSearchDocument
+from src.infrastructure.kakao.kakao_keyword_search_service import KakaoKeywordSearchService
+from src.infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchResponse, KakaoKeywordSearchDocument
 from src.infrastructure.services.route_calculator import RouteCalculator
 from src.infrastructure.waypoints.waypoint_finder import WaypointFinder
 from src.infrastructure.waypoints.waypoint_helper import WaypointHelper

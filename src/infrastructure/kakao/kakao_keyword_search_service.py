@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 import httpx
 from fastapi import HTTPException
 
-from infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchResponse
+from src.infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchResponse
 
 
 class KakaoKeywordSearchService:

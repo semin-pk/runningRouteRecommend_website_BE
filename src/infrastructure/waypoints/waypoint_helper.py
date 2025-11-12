@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 from src.domain.models import WaypointResult
 from src.infrastructure.services.route_calculator import RouteCalculator
-from infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchDocument
+from src.infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchDocument
 
 
 class WaypointHelper:

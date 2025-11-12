@@ -1,7 +1,7 @@
 from typing import List
 
-from infrastructure.kakao.kakao_keyword_search_service import KakaoKeywordSearchService
-from infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchResponse, KakaoKeywordSearchDocument
+from src.infrastructure.kakao.kakao_keyword_search_service import KakaoKeywordSearchService
+from src.infrastructure.kakao.dto.kakao_keyword_dto import KakaoKeywordSearchResponse, KakaoKeywordSearchDocument
 from src.infrastructure.services.route_calculator import RouteCalculator
 
 
