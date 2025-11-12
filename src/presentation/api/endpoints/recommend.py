@@ -2,14 +2,14 @@ from fastapi import APIRouter, Request, Depends
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from domain.models import RecommendRequest, RecommendResponse
-from infrastructure.kakao.kakao_keyword_search_service import KakaoKeywordSearchService
-from infrastructure.services.route_calculator import RouteCalculator
-from infrastructure.waypoints.waypoint_finder import WaypointFinder
-from infrastructure.waypoints.waypoint_helper import WaypointHelper
-from infrastructure.waypoints.strategies.single_destination_strategy import SingleDestinationStrategy
-from infrastructure.waypoints.strategies.waypoints_strategy import WaypointsStrategy
-from infrastructure.services.recommendation_service import RouteRecommendationService
+from src.domain.models import RecommendRequest, RecommendResponse
+from src.infrastructure.kakao.kakao_keyword_search_service import KakaoKeywordSearchService
+from src.infrastructure.services.route_calculator import RouteCalculator
+from src.infrastructure.waypoints.waypoint_finder import WaypointFinder
+from src.infrastructure.waypoints.waypoint_helper import WaypointHelper
+from src.infrastructure.waypoints.strategies.single_destination_strategy import SingleDestinationStrategy
+from src.infrastructure.waypoints.strategies.waypoints_strategy import WaypointsStrategy
+from src.infrastructure.services.recommendation_service import RouteRecommendationService
 
 
 router = APIRouter()
