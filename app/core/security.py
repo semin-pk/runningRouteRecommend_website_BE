@@ -19,16 +19,23 @@ def setup_middlewares(app: FastAPI, limiter: Limiter) -> None:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    # trusted hosts
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=[
-            "www.run2yourstyle.com",
-            "run2yourstyle.com",
-            "*.amazonaws.com",
-            "localhost",
-        ],
-    )
+    # trusted hosts - 개발 환경에서는 모든 호스트 허용, 프로덕션에서는 제한
+    if ENVIRONMENT == "production":
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=[
+                "www.run2yourstyle.com",
+                "run2yourstyle.com",
+                "*.amazonaws.com",
+                "*.amazonaws.com:443",
+            ],
+        )
+    else:
+        # 개발 환경: 모든 호스트 허용 (localhost, 127.0.0.1 등)
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=["*"],
+        )
 
     # CORS
     app.add_middleware(
@@ -46,9 +53,11 @@ def setup_middlewares(app: FastAPI, limiter: Limiter) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers[
-            "Strict-Transport-Security"
-        ] = "max-age=31536000; includeSubDomains"
+        # Strict-Transport-Security는 HTTPS에서만 설정 (프로덕션)
+        if ENVIRONMENT == "production":
+            response.headers[
+                "Strict-Transport-Security"
+            ] = "max-age=31536000; includeSubDomains"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         return response
 

@@ -11,16 +11,25 @@ provider:
   environment:
     # 환경변수 설정
     KAKAO_REST_API_KEY: ${env:KAKAO_REST_API_KEY}
+    OPENAI_API_KEY: ${env:OPENAI_API_KEY}
     ENVIRONMENT: production
   httpApi:
     cors:
       allowedOrigins:
         - https://www.run2yourstyle.com
         - https://run2yourstyle.com
+        - http://localhost:5173
+        - http://localhost:3000
+        - http://localhost:3001
+        - http://127.0.0.1:5173
+        - http://127.0.0.1:3000
+        - http://127.0.0.1:3001
       allowedHeaders:
         - Content-Type
         - Authorization
         - X-Requested-With
+        - Accept
+        - Origin
       allowedMethods:
         - GET
         - POST

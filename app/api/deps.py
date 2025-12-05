@@ -1,11 +1,19 @@
-"""Common dependency functions (placeholder for future DB/session deps)."""
+"""Common dependency functions for database session management."""
 
 from typing import Generator
 
+from sqlalchemy.orm import Session
 
-def get_db() -> Generator[None, None, None]:
-    """Placeholder DB dependency."""
-    yield None
+from app.database import SessionLocal
+
+
+def get_db() -> Generator[Session, None, None]:
+    """Dependency function to get database session."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 
