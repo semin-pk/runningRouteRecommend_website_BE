@@ -33,7 +33,7 @@ def get_llm_model():
         raise ValueError("OPENAI_API_KEY is not configured")
     
     base_model = ChatOpenAI(
-        model_name="gpt-4o-mini",        # 빠르고 저렴한 모델
+        model_name="gpt-5-nano",        # 빠르고 저렴한 모델
         api_key=OPENAI_API_KEY,
         temperature=0.2,
     )

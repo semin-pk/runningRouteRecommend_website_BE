@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from mangum import Mangum
-
+from dotenv import load_dotenv
 from app.api.v1 import api_router
 from app.core.security import create_limiter, setup_exception_handlers, setup_middlewares
 
-
+load_dotenv()
 def create_app() -> FastAPI:
     app = FastAPI(title="Running Route Recommender")
 

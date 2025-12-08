@@ -1,7 +1,8 @@
 import os
 from typing import List
+from dotenv import load_dotenv
 
-
+load_dotenv()
 ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 KAKAO_REST_API_KEY: str | None = os.getenv("KAKAO_REST_API_KEY")
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
@@ -9,8 +10,8 @@ OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
 # Database configuration
 DB_HOST: str = os.getenv("DB_HOST", "127.0.0.1")
 DB_PORT: int = int(os.getenv("DB_PORT", "3306"))
-DB_USER: str = os.getenv("DB_USER", "root")
-DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
+DB_USER: str = os.getenv("DB_USER", "semin")
+DB_PASSWORD: str = os.getenv("DB_PASSWORD", "semin0809")
 DB_NAME: str = os.getenv("DB_NAME", "run2yourstyle_DB")
 
 # SQLAlchemy database URL
