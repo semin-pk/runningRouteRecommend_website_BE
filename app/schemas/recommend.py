@@ -69,6 +69,7 @@ class WaypointResult(BaseModel):
     distance_km: float
     theme_keyword: str
     order: int
+    review_summary: Optional[Dict[str, Any]] = Field(None, description="리뷰 요약 정보 (main_menu, atmosphere, recommended_for)")
 
 
 class RecommendResponse(BaseModel):

@@ -89,12 +89,16 @@ class StoreWithReviewResponse(StoreInfoResponse):
 
 
 class StoreSearchRequest(BaseModel):
-    """가게 검색 요청 스키마"""
+    """상세 검색 요청 스키마 (경유지 지원)"""
 
-    theme: str = Field(..., min_length=1, max_length=50, description="검색 테마/키워드")
+    themes: List[str] = Field(..., min_items=1, max_items=10, description="검색 테마/키워드 리스트 (경유지별 테마)")
     latitude: float = Field(..., ge=-90, le=90, description="검색 중심 위도")
     longitude: float = Field(..., ge=-180, le=180, description="검색 중심 경도")
     radius_m: int = Field(default=2000, ge=100, le=20000, description="검색 반경 (미터)")
+    start_lat: Optional[float] = Field(None, ge=-90, le=90, description="출발지 위도 (경로 계산용)")
+    start_lng: Optional[float] = Field(None, ge=-180, le=180, description="출발지 경도 (경로 계산용)")
+    total_distance_km: Optional[float] = Field(None, gt=0, le=50, description="총 러닝 거리 (km, 경로 계산용)")
+    is_round_trip: bool = Field(default=True, description="왕복 여부")
 
 
 class StoreCandidateResponse(StoreInfoResponse):
@@ -106,16 +110,37 @@ class StoreCandidateResponse(StoreInfoResponse):
     model_config = ConfigDict(from_attributes=True)
 
 
-class StoreSearchResponse(BaseModel):
-    """가게 검색 결과 응답 스키마"""
+class RouteCandidate(BaseModel):
+    """경로 후보 스키마 (경유지 2개 이상일 때)"""
+    
+    route_id: str = Field(..., description="경로 ID")
+    stores: List[StoreCandidateResponse] = Field(..., description="경로에 포함된 가게들 (순서대로)")
+    total_distance_km: float = Field(..., description="예상 총 거리 (km)")
+    route_url: Optional[str] = Field(None, description="카카오맵 경로 URL")
 
-    stores: List[StoreCandidateResponse] = Field(..., description="검색된 가게 목록 (최대 3개)")
+
+class StoreSearchResponse(BaseModel):
+    """상세 검색 결과 응답 스키마"""
+
+    search_type: str = Field(..., description="검색 타입: 'single' (단일 테마) or 'route' (경로)")
+    stores: Optional[List[StoreCandidateResponse]] = Field(None, description="단일 테마일 때 가게 목록 (최대 3개)")
+    routes: Optional[List[RouteCandidate]] = Field(None, description="경유지 2개 이상일 때 경로 목록 (최대 3개)")
 
 
 class StoreConfirmRequest(BaseModel):
-    """가게 확정 요청 스키마"""
+    """가게 확정 요청 스키마 (단일 테마일 때)"""
 
     store_id: str = Field(..., description="선택된 가게 ID")
+    start_lat: float = Field(..., ge=-90, le=90, description="출발지 위도")
+    start_lng: float = Field(..., ge=-180, le=180, description="출발지 경도")
+    total_distance_km: float = Field(..., gt=0, le=50, description="총 러닝 거리 (km)")
+    is_round_trip: bool = Field(default=True, description="왕복 여부")
+
+
+class RouteConfirmRequest(BaseModel):
+    """경로 확정 요청 스키마 (경유지 2개 이상일 때)"""
+
+    store_ids: List[str] = Field(..., min_items=2, max_items=10, description="경로에 포함된 가게 ID 리스트 (순서대로)")
     start_lat: float = Field(..., ge=-90, le=90, description="출발지 위도")
     start_lng: float = Field(..., ge=-180, le=180, description="출발지 경도")
     total_distance_km: float = Field(..., gt=0, le=50, description="총 러닝 거리 (km)")

@@ -23,7 +23,10 @@ def extract_korean(text: str) -> str:
 def build_search_url(store_name: str) -> str:
     """가게 이름으로 네이버 블로그 검색 URL 생성."""
     query = quote_plus(store_name)
-    return f"https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query={query}"
+    url = f"https://search.naver.com/search.naver?ssc=tab.blog.all&sm=tab_jum&query={query}"
+    print(f"[CRAWL] 검색 쿼리: '{store_name}'")
+    print(f"[CRAWL] 검색 URL: {url}")
+    return url
 
 
 def _create_driver() -> webdriver.Chrome:
@@ -32,6 +35,14 @@ def _create_driver() -> webdriver.Chrome:
     # 디버깅할 땐 아래 줄 주석 처리하고 실제 창 보면서 하면 좋음
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
+    # Chrome 로그 레벨 조정 (USB/Registration 경고 제거)
+    chrome_options.add_argument("--log-level=3")  # INFO 레벨 이상만 표시
+    chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+    chrome_options.add_experimental_option('useAutomationExtension', False)
+    # 불필요한 로그 제거
+    import logging
+    logging.getLogger('selenium').setLevel(logging.WARNING)
+    logging.getLogger('urllib3').setLevel(logging.WARNING)
     driver = webdriver.Chrome(options=chrome_options)
     return driver
 
@@ -63,17 +74,75 @@ def crawl_naver_blog_reviews(
         soup = BeautifulSoup(html, "html.parser")
 
         # 클래스 대신 blog.naver.com 도메인 기준으로 링크 찾기
-        url_soup = soup.select('a[href*="blog.naver.com"]')
-
+        url_soup = soup.select('a[nocr="1"][href^="https://blog.naver.com/"]')
+        '''url_soup = (
+            soup.select(
+                "div > div.sds-comps-vertical-layout.sds-comps-full-layout.N8JknjVu2Kc8aLavF6ZA > a"
+            )
+            + soup.select(
+                "div > div.sds-comps-vertical-layout.sds-comps-full-layout.MkfloTjOr2Rg4LLlLwVA > a"
+            )
+            +soup.select(
+                'div > div.sds-comps-vertical-layout.sds-comps-full-layout._IJWW1BBVoZsf1hqzdtq > a'
+                )
+        )'''
         titles: List[str] = []
         links: List[str] = []
 
-        for t in url_soup[:max_posts]:
+        # 필터링할 경로 패턴
+        exclude_patterns = [
+            "blog.naver.com/MyBlog.naver",
+            "section.blog.naver.com",
+            "blog.naver.com/blog",
+            "/blog/",  # 일반적인 블로그 목록 페이지
+        ]
+
+        for t in url_soup:
             title_text = t.get_text().strip()
             link = t.get("href", "").strip()
             if not link:
                 continue
-
+            
+            # 마이블로그나 불필요한 경로 필터링
+            should_exclude = False
+            for pattern in exclude_patterns:
+                if pattern in link:
+                    should_exclude = True
+                    break
+            
+            if should_exclude:
+                print(f"[{store_name}] 필터링된 링크: {link}")
+                continue
+            
+            # 실제 블로그 포스트인지 확인
+            # blog.naver.com/사용자ID/포스트번호 형식이거나
+            # blog.naver.com/사용자ID 형식이면 포함
+            if "blog.naver.com/" in link:
+                # 상대 경로를 절대 경로로 변환
+                if link.startswith("/"):
+                    link = "https://blog.naver.com" + link
+                elif not link.startswith("http"):
+                    link = "https://" + link
+                
+                # blog.naver.com 이후 경로 확인
+                try:
+                    url_parts = link.split("blog.naver.com/", 1)[1].split("/")
+                    # 사용자ID가 있고, 포스트번호가 있거나 경로가 더 있는 경우
+                    if len(url_parts) >= 1 and url_parts[0] and url_parts[0] != "blog":
+                        # 유효한 블로그 링크로 간주
+                        pass
+                    else:
+                        # 유효하지 않은 링크
+                        print(f"[{store_name}] 유효하지 않은 링크 형식: {link}")
+                        continue
+                except (IndexError, ValueError):
+                    # 링크 파싱 실패
+                    print(f"[{store_name}] 링크 파싱 실패: {link}")
+                    continue
+            
+            if len(links) >= max_posts:
+                break
+                
             print(f"[{store_name}] BLOG:", title_text, link)
             titles.append(title_text)
             links.append(link)
