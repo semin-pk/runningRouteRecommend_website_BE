@@ -141,12 +141,24 @@ async def find_waypoint_places(
         page_limit=30,
     )
 
+    # 허용된 카테고리 (프랜차이즈, 스터디카페, 무인카페 등 제외)
+    allowed_categories = [
+        "음식점 > 카페",
+        "음식점 > 카페 > 커피전문점",
+        "음식점 > 카페 > 테마카페 > 디저트카페",
+    ]
+
     scored: List[Dict[str, Any]] = []
     for p in places:
         try:
             lat = float(p["y"])
             lng = float(p["x"])
         except Exception:
+            continue
+        
+        # 카테고리 필터링: 허용된 카테고리만 포함
+        category_name = p.get("category_name", "")
+        if category_name and not any(category_name == allowed for allowed in allowed_categories):
             continue
 
         # 중심점으로부터의 거리
@@ -270,6 +282,33 @@ async def recommend_route(req: RecommendRequest, db: Optional[Session] = None) -
                 radius_m=2000,  # 오차 범위를 2km로 확대
                 page_limit=30,
             )
+            
+            if not places:
+                route_url = build_kakao_walk_url(
+                    [
+                        {
+                            "name": "Start",
+                            "lat": f"{start_lat}",
+                            "lng": f"{start_lng}",
+                        }
+                    ]
+                )
+                return RecommendResponse(
+                    waypoints=[],
+                    route_url=route_url,
+                    total_distance_km=total_distance_km,
+                    actual_total_distance_km=0,
+                    is_round_trip=is_round_trip,
+                    candidates_considered=0,
+                )
+            
+            # 카테고리 필터링 (프랜차이즈, 스터디카페, 무인카페 등 제외)
+            allowed_categories = [
+                "음식점 > 카페",
+                "음식점 > 카페 > 커피전문점",
+                "음식점 > 카페 > 테마카페 > 디저트카페",
+            ]
+            places = [p for p in places if p.get("category_name", "") in allowed_categories]
             
             if not places:
                 route_url = build_kakao_walk_url(
@@ -434,6 +473,15 @@ async def recommend_route(req: RecommendRequest, db: Optional[Session] = None) -
                 radius_m=2000,
                 page_limit=30,
             )
+            
+            # 카테고리 필터링 (프랜차이즈, 스터디카페, 무인카페 등 제외) - 카페인 경우에만
+            if "카페" in waypoint.theme_keyword:
+                allowed_categories = [
+                    "음식점 > 카페",
+                    "음식점 > 카페 > 커피전문점",
+                    "음식점 > 카페 > 테마카페 > 디저트카페",
+                ]
+                places_raw = [p for p in places_raw if p.get("category_name", "") in allowed_categories]
             
             # 거리 계산 및 필터링
             filtered_places = []

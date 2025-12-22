@@ -5,6 +5,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 
 from app.models.store import StoreInfo, StoreReviewSummary
 from app.utils.crawling import crawl_one_store_to_text
@@ -30,8 +31,10 @@ def find_or_create_store(
         address = place_name  # 주소가 없으면 가게 이름 사용
     
     try:
-        longitude = Decimal(str(kakao_result.get("x", "0")))
-        latitude = Decimal(str(kakao_result.get("y", "0")))
+        from decimal import ROUND_HALF_UP
+        # 좌표를 Decimal로 변환하고 소수점 7자리로 반올림 (max_digits=10, decimal_places=7 제한 준수)
+        longitude = Decimal(str(kakao_result.get("x", "0"))).quantize(Decimal('0.0000001'), rounding=ROUND_HALF_UP)
+        latitude = Decimal(str(kakao_result.get("y", "0"))).quantize(Decimal('0.0000001'), rounding=ROUND_HALF_UP)
     except (ValueError, TypeError):
         raise HTTPException(status_code=400, detail="Invalid coordinates in Kakao API result")
     
@@ -70,9 +73,29 @@ def find_or_create_store(
         close_time=None,
     )
     db.add(new_store)
-    db.commit()
-    db.refresh(new_store)
-    return new_store
+    try:
+        db.commit()
+        db.refresh(new_store)
+        return new_store
+    except IntegrityError:
+        # 중복 오류 발생 시 롤백 후 기존 가게 다시 조회
+        db.rollback()
+        # 이름과 주소로만 다시 조회 (좌표는 약간 다를 수 있음)
+        existing_store = db.query(StoreInfo).filter(
+            and_(
+                StoreInfo.name == place_name,
+                StoreInfo.address == address,
+            )
+        ).first()
+        if existing_store:
+            # 기존 가게 정보 업데이트 (전화번호 등)
+            if phone and not existing_store.phone:
+                existing_store.phone = phone
+            db.commit()
+            db.refresh(existing_store)
+            return existing_store
+        # 여전히 찾지 못하면 예외 재발생
+        raise
 
 
 async def search_stores_by_theme(
@@ -125,7 +148,18 @@ async def search_stores_by_theme(
             if not places:
                 return []
             
-            # 거리 계산 및 필터링 - 빠른 검색과 동일 (카테고리 필터링 없이)
+            # 카테고리 필터링 (프랜차이즈, 스터디카페, 무인카페 등 제외)
+            allowed_categories = [
+                "음식점 > 카페",
+                "음식점 > 카페 > 커피전문점",
+                "음식점 > 카페 > 테마카페 > 디저트카페",
+            ]
+            places = [p for p in places if p.get("category_name", "") in allowed_categories]
+            
+            if not places:
+                return []
+            
+            # 거리 계산 및 필터링 - 빠른 검색과 동일
             filtered_places = []
             for p in places:
                 try:
@@ -161,6 +195,17 @@ async def search_stores_by_theme(
             radius_m=radius_m,
             page_limit=30,
         )
+        
+        if not places:
+            return []
+        
+        # 카테고리 필터링 (프랜차이즈, 스터디카페, 무인카페 등 제외)
+        allowed_categories = [
+            "음식점 > 카페",
+            "음식점 > 카페 > 커피전문점",
+            "음식점 > 카페 > 테마카페 > 디저트카페",
+        ]
+        places = [p for p in places if p.get("category_name", "") in allowed_categories]
         
         if not places:
             return []

@@ -1,5 +1,6 @@
 from typing import List, Dict
 from uuid import uuid4
+from decimal import Decimal, ROUND_HALF_UP
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from slowapi import Limiter
@@ -27,9 +28,10 @@ from app.services.store_service import (
     search_stores_by_theme,
     check_review_summary_exists,
     process_review_summary_background,
+    find_or_create_store,
 )
 from app.services.recommend_service import recommend_route
-from app.schemas.recommend import RecommendRequest, RecommendResponse
+from app.schemas.recommend import RecommendRequest, RecommendResponse, Waypoint
 
 router = APIRouter()
 limiter: Limiter = Limiter(key_func=get_remote_address)
@@ -276,204 +278,118 @@ async def search_stores(
         return StoreSearchResponse(search_type="single", stores=store_candidates, routes=None)
     
     # 경유지가 2개 이상일 때: 경로 생성
-    from uuid import uuid4
-    from app.services.recommend_service import haversine_km, build_kakao_walk_url, calculate_destination_point
-    import random
+    # 빠른 검색의 recommend_route 함수를 3번 호출하여 3개의 경로 생성
+    from app.services.recommend_service import build_kakao_walk_url, haversine_km
     
-    route_candidates = []
     start_lat = search_req.start_lat if search_req.start_lat else search_req.latitude
     start_lng = search_req.start_lng if search_req.start_lng else search_req.longitude
     total_distance_km = search_req.total_distance_km if search_req.total_distance_km else 7.0  # 기본값 7km
     
-    # 각 테마별로 가게 검색 (거리 기반)
-    # 빠른 검색과 동일한 로직: 각 구간의 목표 거리를 계산하여 검색
-    theme_stores: Dict[str, List[StoreInfo]] = {}
+    # 테마를 waypoint 형식으로 변환
+    waypoints = [Waypoint(theme_keyword=theme, order=i+1) for i, theme in enumerate(themes)]
     
-    # 각 구간의 목표 거리 계산 (빠른 검색과 동일한 방식)
-    waypoint_count = len(themes)
-    segment_distances = []
-    if waypoint_count > 0:
-        if search_req.is_round_trip:
-            segment_count = waypoint_count + 1
-            avg_distance = total_distance_km / segment_count
-            segment_distances = [avg_distance] * waypoint_count
-        else:
-            avg_distance = total_distance_km / waypoint_count
-            segment_distances = [avg_distance] * waypoint_count
-    
-    accumulated_distance = 0.0
-    current_lat, current_lng = start_lat, start_lng
-    
-    for i, theme in enumerate(themes):
-        segment_distance = segment_distances[i] if i < len(segment_distances) else segment_distances[-1] if segment_distances else total_distance_km / len(themes)
-        
-        # 목표 지점 계산 (현재 위치로부터 segment_distance만큼)
-        random_bearing = random.uniform(0, 360)
-        target_lat, target_lng = calculate_destination_point(
-            current_lat, current_lng, segment_distance, random_bearing
-        )
-        
-        # 출발점으로부터의 목표 거리 계산
-        target_distance_from_start = accumulated_distance + segment_distance
-        
-        # 목표 거리 ± 1km 오차 범위 내에서 검색
-        # 경로 다양성을 위해 각 테마당 5개씩 검색
-        stores = await search_stores_by_theme(
-            db=db,
-            theme=theme,
-            latitude=target_lat,
-            longitude=target_lng,
-            radius_m=1000,  # 오차 범위 1km
-            limit=5,  # 다양성을 위해 5개로 증가
-            target_distance_km=target_distance_from_start,
-            start_lat=start_lat,
-            start_lng=start_lng,
-        )
-        theme_stores[theme] = stores
-        
-        # 다음 경유지를 위한 현재 위치 업데이트 (평균 거리로 추정)
-        # 실제로는 검색된 가게 중 하나의 위치를 사용하지만, 
-        # 여기서는 목표 지점을 사용하여 다음 검색 위치 계산
-        current_lat, current_lng = target_lat, target_lng
-        accumulated_distance += segment_distance
-    
-    # 경로 생성: 빠른 검색과 동일한 방식으로 각 테마당 하나씩 랜덤 선택하여 경로 구성
-    # (목표 거리 필터링은 search_stores_by_theme에서 이미 수행됨)
-    from itertools import product
-    
-    # 각 테마별 가게 리스트
-    theme_store_lists = [theme_stores.get(theme, []) for theme in themes]
-    
-    # 빠른 검색과 동일: 검색된 가게가 없는 테마가 있으면 빈 경로 반환
-    if any(len(stores) == 0 for stores in theme_store_lists):
-        print(f"[상세 검색] 경로 생성 실패: 일부 테마에서 가게를 찾을 수 없습니다.")
-        return StoreSearchResponse(search_type="route", stores=None, routes=[])
-    
+    # 빠른 검색의 recommend_route를 3번 호출하여 다양한 경로 생성
+    route_candidates = []
+    used_place_names = set()  # 이미 사용된 장소 이름 추적 (다양성 확보)
     max_routes = 3
-    route_count = 0
-    used_store_combinations = set()
     
-    print(f"[상세 검색] 경로 생성 시작: 테마 {len(themes)}개, 각 테마당 가게 {[len(stores) for stores in theme_store_lists]}")
+    print(f"[상세 검색] 경로 생성 시작: 테마 {len(themes)}개, 빠른 검색 방식으로 {max_routes}개 경로 생성")
     
-    # 모든 조합 생성 후 거리 오차순 정렬
-    all_combinations = []
-    for store_combination in product(*theme_store_lists):
-        if len(store_combination) != len(themes):
-            continue
-        
-        # 경로 내 중복 가게 체크
-        store_ids_in_route = [store.store_id for store in store_combination]
-        if len(store_ids_in_route) != len(set(store_ids_in_route)):
-            continue
-        
-        # 총 거리 계산
-        total_distance = 0.0
-        prev_lat = start_lat
-        prev_lng = start_lng
-        for store in store_combination:
-            distance = haversine_km(prev_lat, prev_lng, float(store.latitude), float(store.longitude))
-            total_distance += distance
-            prev_lat = float(store.latitude)
-            prev_lng = float(store.longitude)
-        
-        if search_req.is_round_trip:
-            last_store = store_combination[-1]
-            return_distance = haversine_km(float(last_store.latitude), float(last_store.longitude), start_lat, start_lng)
-            total_distance += return_distance
-        
-        all_combinations.append((store_combination, total_distance))
-    
-    # 목표 거리 오차가 작은 순으로 정렬 (빠른 검색과 동일하게 거리 필터링 없이 오차순 정렬)
-    all_combinations.sort(key=lambda x: abs(x[1] - total_distance_km))
-    
-    print(f"[상세 검색] 총 조합: {len(all_combinations)}개 (목표 거리: {total_distance_km}km)")
-    
-    # 상위 max_routes개 경로 생성 (다양성 확보)
-    for store_combination, route_total_distance in all_combinations:
-        if route_count >= max_routes:
-            break
-        
-        store_ids_in_route = [store.store_id for store in store_combination]
-        route_store_ids_set = frozenset(store_ids_in_route)
-        
-        if route_store_ids_set in used_store_combinations:
-            continue
-        
-        # 경로 간 다양성 체크
-        if len(used_store_combinations) > 0:
-            has_diversity = False
-            for used_combination in used_store_combinations:
-                diff = route_store_ids_set.symmetric_difference(used_combination)
-                if len(diff) >= 2:
-                    has_diversity = True
-                    break
-            if not has_diversity:
+    for route_idx in range(max_routes):
+        try:
+            # RecommendRequest 생성
+            recommend_req = RecommendRequest(
+                start_lat=start_lat,
+                start_lng=start_lng,
+                total_distance_km=total_distance_km,
+                waypoints=waypoints,
+                is_round_trip=search_req.is_round_trip,
+            )
+            
+            # 빠른 검색의 recommend_route 호출
+            recommend_response = await recommend_route(recommend_req, db=db)
+            
+            # waypoint가 없으면 실패
+            if not recommend_response.waypoints:
+                print(f"[상세 검색] 경로 {route_idx + 1} 생성 실패: waypoint 없음")
                 continue
-        
-        used_store_combinations.add(route_store_ids_set)
-        
-        route_id = str(uuid4())
-        route_stores = []
-        prev_lat = start_lat
-        prev_lng = start_lng
-        
-        for i, store in enumerate(store_combination):
-            has_review = check_review_summary_exists(db, store.store_id)
-            review_summary = None
-            if has_review:
-                review = db.query(StoreReviewSummary).filter(
-                    StoreReviewSummary.store_id == store.store_id
-                ).first()
-                if review:
-                    review_summary = StoreReviewSummaryResponse.model_validate(review)
             
-            distance = haversine_km(
-                prev_lat, prev_lng,
-                float(store.latitude), float(store.longitude)
+            # 이미 사용된 장소가 모두 포함되어 있는지 확인 (다양성 체크)
+            route_place_names = {w.place_name for w in recommend_response.waypoints}
+            if route_place_names.issubset(used_place_names) and len(used_place_names) > 0:
+                # 모든 장소가 이미 사용되었으면 스킵
+                print(f"[상세 검색] 경로 {route_idx + 1} 스킵: 다양성 부족")
+                continue
+            
+            # 사용된 장소 목록에 추가
+            used_place_names.update(route_place_names)
+            
+            # RecommendResponse를 RouteCandidate로 변환
+            route_stores = []
+            for waypoint in recommend_response.waypoints:
+                # waypoint 정보를 dict 형식으로 변환하여 find_or_create_store 사용
+                kakao_result_dict = {
+                    "place_name": waypoint.place_name,
+                    "address_name": waypoint.address_name or "",
+                    "road_address_name": waypoint.road_address_name or "",
+                    "x": waypoint.x,
+                    "y": waypoint.y,
+                    "phone": waypoint.phone or "",
+                }
+                
+                # DB에 가게 저장 또는 조회
+                store = find_or_create_store(db, kakao_result_dict)
+                
+                has_review = False
+                review_summary = None
+                
+                if check_review_summary_exists(db, store.store_id):
+                    has_review = True
+                    review = db.query(StoreReviewSummary).filter(
+                        StoreReviewSummary.store_id == store.store_id
+                    ).first()
+                    if review:
+                        review_summary = StoreReviewSummaryResponse.model_validate(review)
+                elif waypoint.review_summary:
+                    # waypoint에 리뷰 요약이 있으면 사용
+                    has_review = True
+                    review_summary = StoreReviewSummaryResponse(
+                        main_menu=waypoint.review_summary.get("main_menu"),
+                        atmosphere=waypoint.review_summary.get("atmosphere"),
+                        recommended_for=waypoint.review_summary.get("recommended_for"),
+                    )
+                
+                store_candidate = StoreCandidateResponse(
+                    store_id=store.store_id,
+                    name=store.name,
+                    address=store.address,
+                    longitude=store.longitude,
+                    latitude=store.latitude,
+                    phone=store.phone,
+                    open_time=store.open_time,
+                    close_time=store.close_time,
+                    summary_status="ready" if has_review else "processing",
+                    review_summary=review_summary,
+                )
+                
+                route_stores.append(store_candidate)
+            
+            route_candidate = RouteCandidate(
+                route_id=str(uuid4()),
+                stores=route_stores,
+                total_distance_km=recommend_response.actual_total_distance_km or round(recommend_response.total_distance_km, 2),
+                route_url=recommend_response.route_url,
             )
+            route_candidates.append(route_candidate)
+            print(f"[상세 검색] 경로 {route_idx + 1} 생성 완료: {len(route_stores)}개 가게, 총 거리 {route_candidate.total_distance_km}km")
             
-            store_candidate = StoreCandidateResponse(
-                store_id=store.store_id,
-                name=store.name,
-                address=store.address,
-                longitude=store.longitude,
-                latitude=store.latitude,
-                phone=store.phone,
-                open_time=store.open_time,
-                close_time=store.close_time,
-                summary_status="ready" if has_review else "processing",
-                review_summary=review_summary,
-            )
-            route_stores.append(store_candidate)
-            
-            prev_lat = float(store.latitude)
-            prev_lng = float(store.longitude)
-        
-        # 경로 URL 생성
-        route_points = [{"name": "Start", "lat": f"{start_lat}", "lng": f"{start_lng}"}]
-        for store in route_stores:
-            route_points.append({
-                "name": store.name,
-                "lat": f"{store.latitude}",
-                "lng": f"{store.longitude}",
-            })
-        if search_req.is_round_trip:
-            route_points.append({"name": "Start", "lat": f"{start_lat}", "lng": f"{start_lng}"})
-        
-        route_url = build_kakao_walk_url(route_points) if route_points else None
-        
-        route_candidate = RouteCandidate(
-            route_id=route_id,
-            stores=route_stores,
-            total_distance_km=round(route_total_distance, 2),
-            route_url=route_url,
-        )
-        route_candidates.append(route_candidate)
-        route_count += 1
+        except Exception as e:
+            print(f"[상세 검색] 경로 {route_idx + 1} 생성 중 오류: {e}")
+            continue
     
     # 경로가 없으면 빈 배열 반환 (리뷰 크롤링 없이)
     if not route_candidates:
-        print(f"[상세 검색] 경로 생성 실패: 유효한 경로가 없습니다. (검색된 가게 조합: {len(all_combinations)}개)")
+        print(f"[상세 검색] 경로 생성 실패: 유효한 경로가 없습니다.")
         return StoreSearchResponse(search_type="route", stores=None, routes=[])
     
     # 경로 생성 성공 시에만 해당 경로의 가게들에 대해 리뷰 크롤링 실행
@@ -483,15 +399,14 @@ async def search_stores(
             if store.store_id not in processed_store_ids:
                 processed_store_ids.add(store.store_id)
                 if not check_review_summary_exists(db, store.store_id):
-                    # 해당 가게의 테마 찾기
+                    # 해당 가게의 테마 찾기 (waypoint에서)
                     store_theme = None
-                    for theme, stores in theme_stores.items():
-                        for s in stores:
-                            if s.store_id == store.store_id:
-                                store_theme = theme
-                                break
-                        if store_theme:
+                    for waypoint in waypoints:
+                        if waypoint.theme_keyword in store.name or any(waypoint.theme_keyword in theme for theme in themes):
+                            store_theme = waypoint.theme_keyword
                             break
+                    if not store_theme and themes:
+                        store_theme = themes[0]  # 기본값
                     
                     background_tasks.add_task(
                         process_review_summary_background,
