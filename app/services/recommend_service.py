@@ -215,7 +215,7 @@ def get_review_summary_for_place(
     place_lat: float,
     place_lng: float,
 ) -> Optional[Dict[str, Any]]:
-    """가게 정보로 리뷰 요약을 찾아서 반환"""
+    """가게 정보로 리뷰 요약을 찾아서 반환 (DB 조회)"""
     try:
         # 이름과 주소로 가게 찾기
         query = db.query(StoreInfo).filter(StoreInfo.name == place_name)
@@ -240,6 +240,85 @@ def get_review_summary_for_place(
         return None
     except Exception as e:
         print(f"[ERROR] 리뷰 요약 조회 실패: {e}")
+        return None
+
+
+def crawl_and_summarize_review(
+    store_name: str,
+    store_address: Optional[str] = None,
+    theme: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    DB 저장 없이 리뷰 크롤링 및 요약을 직접 수행하여 반환.
+    빠른검색에서 사용.
+    """
+    from app.utils.crawling import crawl_one_store_to_text
+    from app.utils.llm_summarize import extract_review_keywords
+    import re
+    
+    try:
+        # 주소에서 시/구 추출하여 검색 쿼리 생성: "{시} {구} {가게이름} {테마}" 형식
+        search_query = store_name
+        
+        # 주소에서 시/구 추출
+        city = ""
+        district = ""
+        
+        if store_address:
+            # 정규표현식으로 시/도, 구/군 추출
+            city_match = re.search(r'([가-힣]+(?:특별시|광역시|시|도))', store_address)
+            district_match = re.search(r'([가-힣]+(?:구|군))', store_address)
+            
+            if city_match:
+                city_full = city_match.group(1)
+                # "서울특별시" -> "서울", "경기도" -> "경기", "부산광역시" -> "부산"
+                city = city_full.replace("특별시", "").replace("광역시", "").replace("시", "").replace("도", "")
+            
+            if district_match:
+                district = district_match.group(1)
+        
+        # 검색 쿼리 조합: "{시} {구} {가게이름} {테마}"
+        query_parts = []
+        
+        if city:
+            query_parts.append(city)
+        if district:
+            query_parts.append(district)
+        if store_name:
+            query_parts.append(store_name)
+        if theme:
+            query_parts.append(theme)
+        
+        if len(query_parts) > 1:
+            search_query = " ".join(query_parts)
+        
+        print(f"[빠른검색 리뷰] {store_name}: 검색 쿼리 '{search_query}'로 크롤링 시작")
+        
+        # 1. 크롤링
+        _, review_text = crawl_one_store_to_text(search_query)
+        
+        if not review_text.strip():
+            print(f"[빠른검색 리뷰] {store_name}: 크롤링 결과 없음")
+            return None
+        
+        # 2. LLM 요약
+        print(f"[빠른검색 리뷰] {store_name}: LLM 요약 시작")
+        extraction = extract_review_keywords(review_text)
+        
+        # 3. 결과 반환 (DB 저장 없음)
+        result = {
+            "main_menu": extraction.main_menu,
+            "atmosphere": extraction.atmosphere,
+            "recommended_for": extraction.recommended_for,
+        }
+        
+        print(f"[빠른검색 리뷰] {store_name}: 요약 완료")
+        return result
+        
+    except Exception as e:
+        import traceback
+        print(f"[빠른검색 리뷰] {store_name}: 리뷰 요약 실패 - {e}")
+        print(f"[빠른검색 리뷰] {store_name}: 트레이스백:\n{traceback.format_exc()}")
         return None
 
 
@@ -372,16 +451,12 @@ async def recommend_route(req: RecommendRequest, db: Optional[Session] = None) -
 
         route_url = build_kakao_walk_url(route_points)
 
-        # 리뷰 요약 조회
-        review_summary = None
-        if db:
-            review_summary = get_review_summary_for_place(
-                db=db,
-                place_name=dest_name,
-                place_address=selected.get("address_name") or selected.get("road_address_name"),
-                place_lat=float(selected["y"]),
-                place_lng=float(selected["x"]),
-            )
+        # 리뷰 요약 (DB 저장 없이 크롤링 및 요약 직접 수행)
+        review_summary = crawl_and_summarize_review(
+            store_name=dest_name,
+            store_address=selected.get("address_name") or selected.get("road_address_name"),
+            theme="카페",
+        )
         
         actual_distance = haversine_km(
             start_lat, start_lng, float(selected["y"]), float(selected["x"])
@@ -536,16 +611,12 @@ async def recommend_route(req: RecommendRequest, db: Optional[Session] = None) -
 
         total_candidates += len(places)
 
-        # 리뷰 요약 조회
-        review_summary = None
-        if db:
-            review_summary = get_review_summary_for_place(
-                db=db,
-                place_name=selected.get("place_name") or f"{waypoint.theme_keyword} 목적지",
-                place_address=selected.get("address_name") or selected.get("road_address_name"),
-                place_lat=float(selected["y"]),
-                place_lng=float(selected["x"]),
-            )
+        # 리뷰 요약 (DB 저장 없이 크롤링 및 요약 직접 수행)
+        review_summary = crawl_and_summarize_review(
+            store_name=selected.get("place_name") or f"{waypoint.theme_keyword} 목적지",
+            store_address=selected.get("address_name") or selected.get("road_address_name"),
+            theme=waypoint.theme_keyword,
+        )
         
         # 실제 거리 계산
         actual_segment_distance = haversine_km(
