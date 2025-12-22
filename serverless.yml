@@ -73,6 +73,21 @@ package:
     - "!node_modules/**"   # node_modules 제외
     - "!.git/**"           # .git 제외
     - "!*.md"              # 마크다운 파일 제외
+    - "!__pycache__/**"    # Python 캐시 제외
+    - "!*.pyc"             # Python 바이트코드 제외
+    - "!*.pyo"             # Python 최적화 바이트코드 제외
+    - "!.pytest_cache/**"  # pytest 캐시 제외
+    - "!.venv/**"          # 가상환경 제외
+    - "!venv/**"           # 가상환경 제외
+    - "!env/**"            # 가상환경 제외
+    - "!ENV/**"            # 가상환경 제외
+    - "!test.py"           # 테스트 파일 제외
+    - "!tests/**"          # 테스트 디렉토리 제외
+    - "!.github/**"        # GitHub Actions 제외
+    - "!init_database.py"  # DB 초기화 스크립트 제외
+    - "!.serverless/**"    # Serverless 빌드 아티팩트 제외
+    - "!package.json"      # Node.js 패키지 파일 제외
+    - "!package-lock.json" # Node.js 패키지 락 파일 제외
 
 plugins:
   - serverless-python-requirements
@@ -94,3 +109,12 @@ custom:
     slim: true
     # Python 버전 지정(선택): 러너 기본 python이 낮을 때 유용
     pythonBin: python3
+    # 불필요한 패키지 제외 (Lambda에 이미 포함되어 있음)
+    noDeploy:
+      - boto3
+      - botocore
+    # 패키지 크기 최적화를 위한 추가 옵션
+    layer: false
+    # pip 옵션: 불필요한 파일 제외
+    pipCmdExtraArgs:
+      - --no-cache-dir
