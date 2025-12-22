@@ -34,8 +34,6 @@ jobs:
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-        kakao-rest-api-key: ${{ secrets.KAKAO_REST_API_KEY }}
         aws-region: ap-northeast-2
         
     - name: Install Serverless Framework
@@ -58,3 +56,4 @@ jobs:
       env:
         ENVIRONMENT: production
         KAKAO_REST_API_KEY: ${{ secrets.KAKAO_REST_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
